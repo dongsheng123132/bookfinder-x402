@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node server.js",
-    "start": "node server.js"
+    "dev": "node server.local.js",
+    "start": "node server.local.js"
   },
   "dependencies": {
     "@coinbase/x402": "latest",
