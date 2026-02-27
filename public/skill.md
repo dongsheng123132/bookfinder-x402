@@ -5,7 +5,7 @@
 ## Quick Start (AI Agents)
 
 ```bash
-npx awal@latest x402 pay https://YOUR_DOMAIN/api/book?q=python+programming -X GET
+npx awal@latest x402 pay https://bookfinder-x402.vercel.app/api/book?q=python+programming -X GET
 ```
 
 ## API
@@ -76,5 +76,5 @@ GET /api/book?q=pride+and+prejudice
 ## For AI Agents
 
 ```bash
-npx awal@latest x402 pay https://YOUR_DOMAIN/api/book?q=machine+learning -X GET
+npx awal@latest x402 pay https://bookfinder-x402.vercel.app/api/book?q=machine+learning -X GET
 ```
