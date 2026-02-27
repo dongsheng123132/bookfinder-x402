@@ -1,33 +1,16 @@
-import express from "express";
-import cors from "cors";
+// ── 图书搜索 API (x402 付费) ──────────────────────────────
 
-const app = express();
-app.use(express.json());
-app.use(
-  cors({
-    origin: "*",
-    exposedHeaders: [
-      "x-payment-response",
-      "X-PAYMENT-RESPONSE",
-      "x-payment-requirements",
-      "X-PAYMENT-REQUIREMENTS",
-    ],
-  })
-);
+let x402Ready = false;
+let x402Middleware = null;
+let x402Error = null;
 
-// ── x402 懒加载 ──────────────────────────────────────────
-let initPromise = null;
-
-async function ensureInit() {
-  if (!initPromise) initPromise = doInit();
-  return initPromise;
-}
-
-async function doInit() {
+// 后台预加载 x402 (不阻塞请求)
+async function loadX402() {
   const PAYMENT_ADDRESS = process.env.PAYMENT_ADDRESS;
-  const NETWORK = process.env.NETWORK || "eip155:84532";
+  const NETWORK = (process.env.NETWORK || "eip155:84532").trim();
+  if (!PAYMENT_ADDRESS || x402Ready) return;
 
-  if (PAYMENT_ADDRESS) {
+  try {
     const [
       { paymentMiddleware, x402ResourceServer },
       { ExactEvmScheme },
@@ -43,46 +26,31 @@ async function doInit() {
       new ExactEvmScheme()
     );
 
-    app.use(
-      paymentMiddleware(
-        {
-          "GET /api/book": {
-            accepts: [
-              {
-                scheme: "exact",
-                price: "$0.01",
-                network: NETWORK,
-                payTo: PAYMENT_ADDRESS,
-              },
-            ],
-            description: "Search book and get PDF download link — 0.01 USDC",
-            mimeType: "application/json",
-          },
+    x402Middleware = paymentMiddleware(
+      {
+        "GET /api/book": {
+          accepts: [
+            {
+              scheme: "exact",
+              price: "$0.01",
+              network: NETWORK,
+              payTo: PAYMENT_ADDRESS,
+            },
+          ],
+          description: "Search book and get PDF download link — 0.01 USDC",
+          mimeType: "application/json",
         },
-        server
-      )
+      },
+      server
     );
+    x402Ready = true;
+  } catch (e) {
+    x402Error = e.message;
   }
-
-  // ── 搜索端点 ──────────────────────────────────────────
-  app.get("/api/book", async (req, res) => {
-    const query = req.query.q || req.query.title || "";
-    if (!query) {
-      return res
-        .status(400)
-        .json({ error: "Missing query. Usage: GET /api/book?q=book+name" });
-    }
-
-    try {
-      const results = await searchBooks(query);
-      return res.json(results);
-    } catch (err) {
-      return res
-        .status(500)
-        .json({ error: "Search failed", message: err.message });
-    }
-  });
 }
+
+// 立即开始后台加载
+const loadPromise = loadX402();
 
 // ── 图书搜索逻辑 ──────────────────────────────────────────
 
@@ -101,14 +69,11 @@ async function searchBooks(query) {
   return { query, total: books.length, books: books.slice(0, 15) };
 }
 
-// ── Gutendex (Project Gutenberg, 公版书) ──────────────────
-
 async function searchGutendex(query) {
   const url = `https://gutendex.com/books/?search=${encodeURIComponent(query)}`;
   const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(8000) });
   if (!res.ok) return [];
   const data = await res.json();
-
   return (data.results || []).slice(0, 5).map((book) => {
     const f = book.formats || {};
     return {
@@ -127,14 +92,11 @@ async function searchGutendex(query) {
   });
 }
 
-// ── Open Library (Internet Archive) ──────────────────────
-
 async function searchOpenLibrary(query) {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5&fields=key,title,author_name,first_publish_year,isbn,cover_i,ia`;
   const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(8000) });
   if (!res.ok) return [];
   const data = await res.json();
-
   return (data.docs || []).slice(0, 5).map((doc) => {
     const ia = doc.ia?.[0];
     return {
@@ -154,8 +116,6 @@ async function searchOpenLibrary(query) {
   });
 }
 
-// ── Anna's Archive (影子图书馆索引) ──────────────────────
-
 async function searchAnnasArchive(query) {
   try {
     const url = `https://annas-archive.org/search?q=${encodeURIComponent(query)}`;
@@ -165,7 +125,6 @@ async function searchAnnasArchive(query) {
     });
     if (!res.ok) return [];
     const html = await res.text();
-
     const results = [];
     const md5Regex = /href="(\/md5\/[a-f0-9]+)"/gi;
     let m;
@@ -186,9 +145,47 @@ async function searchAnnasArchive(query) {
 // ── Vercel handler ────────────────────────────────────────
 
 export default async function handler(req, res) {
-  await ensureInit();
-  return new Promise((resolve) => {
-    res.on("finish", resolve);
-    app(req, res);
-  });
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Expose-Headers", "X-PAYMENT-REQUIREMENTS, X-PAYMENT-RESPONSE");
+
+  if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT");
+    return res.status(204).end();
+  }
+
+  // 如果 x402 已加载, 走 x402 中间件验证支付
+  if (x402Ready && x402Middleware) {
+    return new Promise((resolve) => {
+      // 创建一个包含 route handler 的 mini express chain
+      const next = async () => {
+        // x402 验证通过, 执行搜索
+        await doSearch(req, res);
+        resolve();
+      };
+      x402Middleware(req, res, next);
+    });
+  }
+
+  // x402 还没加载完 或 没配置, 直接执行搜索 (用于预热/免费模式)
+  await doSearch(req, res);
+}
+
+async function doSearch(req, res) {
+  const query = (req.query?.q || req.query?.title || "").trim();
+  if (!query) {
+    return res.status(400).json({
+      error: "Missing query. Usage: GET /api/book?q=book+name",
+      x402_status: x402Ready ? "ready" : x402Error ? `error: ${x402Error}` : "loading...",
+    });
+  }
+
+  try {
+    const results = await searchBooks(query);
+    results.x402_status = x402Ready ? "ready" : x402Error ? `error: ${x402Error}` : "loading...";
+    return res.json(results);
+  } catch (err) {
+    return res.status(500).json({ error: "Search failed", message: err.message });
+  }
 }
