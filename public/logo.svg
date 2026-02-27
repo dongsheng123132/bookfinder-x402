@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- Book shape -->
+  <rect x="20" y="25" width="55" height="70" rx="3" fill="#1e3a5f" stroke="#3b82f6" stroke-width="2"/>
+  <rect x="25" y="25" width="50" height="70" rx="2" fill="#1a2a4a"/>
+  <line x1="30" y1="25" x2="30" y2="95" stroke="#2a4a6a" stroke-width="1"/>
+  <!-- Book pages -->
+  <line x1="35" y1="40" x2="65" y2="40" stroke="#4a6a8a" stroke-width="1.5"/>
+  <line x1="35" y1="48" x2="60" y2="48" stroke="#4a6a8a" stroke-width="1.5"/>
+  <line x1="35" y1="56" x2="62" y2="56" stroke="#4a6a8a" stroke-width="1.5"/>
+  <line x1="35" y1="64" x2="58" y2="64" stroke="#4a6a8a" stroke-width="1.5"/>
+  <!-- Magnifying glass -->
+  <circle cx="78" cy="55" r="20" fill="none" stroke="#3b82f6" stroke-width="3"/>
+  <circle cx="78" cy="55" r="15" fill="#0a1a2a" fill-opacity="0.6"/>
+  <line x1="92" y1="69" x2="105" y2="82" stroke="#3b82f6" stroke-width="4" stroke-linecap="round"/>
+  <!-- $ symbol in magnifier -->
+  <text x="78" y="61" text-anchor="middle" font-family="monospace" font-size="18" font-weight="bold" fill="#60a5fa">$</text>
+  <!-- x402 badge -->
+  <rect x="55" y="85" width="45" height="18" rx="9" fill="#3b82f6"/>
+  <text x="77" y="97" text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#fff">x402</text>
+</svg>

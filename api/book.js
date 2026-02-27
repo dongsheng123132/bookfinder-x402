@@ -76,38 +76,49 @@ export default async function handler(req, res) {
 async function _handler(req, res) {
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Expose-Headers", "X-PAYMENT-REQUIREMENTS, X-PAYMENT-RESPONSE");
+  res.setHeader("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, PAYMENT-RESPONSE, X-PAYMENT-REQUIREMENTS, X-PAYMENT-RESPONSE");
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE");
     return res.status(204).end();
   }
 
   var PAYMENT_ADDRESS = (process.env.PAYMENT_ADDRESS || "").trim();
   var NETWORK = (process.env.NETWORK || "eip155:84532").trim();
-  var hasPaymentHeader = !!(req.headers["x-payment"]);
+  // x402 v2 uses PAYMENT-SIGNATURE, v1 uses X-PAYMENT
+  var hasPaymentHeader = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
 
-  // 没有支付头 + 配置了收款地址 → 返回 402
+  // USDC contract addresses per network
+  var USDC_ASSETS = {
+    "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  };
+  var usdcAsset = USDC_ASSETS[NETWORK] || USDC_ASSETS["eip155:84532"];
+
+  // 没有支付头 + 配置了收款地址 → 返回 402 (x402 v2 标准格式)
   if (PAYMENT_ADDRESS && !hasPaymentHeader) {
+    var requestUrl = "https://" + (req.headers.host || "bookfinder-x402.vercel.app") + "/api/book";
     var payReq = {
+      x402Version: 2,
+      error: "Payment required",
+      resource: {
+        url: requestUrl,
+        description: "Search book and get PDF download link - 0.01 USDC",
+        mimeType: "application/json",
+      },
       accepts: [{
         scheme: "exact",
-        price: "0.01",
         network: NETWORK,
+        asset: usdcAsset,
+        amount: "10000",
         payTo: PAYMENT_ADDRESS,
+        maxTimeoutSeconds: 60,
+        extra: {},
       }],
-      description: "Search book and get PDF download link - 0.01 USDC",
-      mimeType: "application/json",
     };
-    // Base64 encode to avoid invalid header chars
-    res.setHeader("X-PAYMENT-REQUIREMENTS", Buffer.from(JSON.stringify(payReq)).toString("base64"));
-    return res.status(402).json({
-      error: "Payment Required",
-      price: "0.01 USDC",
-      network: NETWORK,
-      payTo: PAYMENT_ADDRESS,
-      how: "npx awal@latest x402 pay <this-url> -X GET",
-    });
+    // x402 v2: PAYMENT-REQUIRED header with base64 encoded JSON
+    res.setHeader("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(payReq)).toString("base64"));
+    return res.status(402).json({});
   }
 
   // 有支付头 → 验证支付 (懒加载 x402)
