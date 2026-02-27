@@ -39,7 +39,7 @@ async function searchGutendex(query) {
         cover: f["image/jpeg"] || null,
       };
     });
-  } catch { return []; }
+  } catch (e) { return []; }
 }
 
 async function searchOpenLibrary(query) {
@@ -65,10 +65,15 @@ async function searchOpenLibrary(query) {
         cover: doc.cover_i ? "https://covers.openlibrary.org/b/id/" + doc.cover_i + "-M.jpg" : null,
       };
     });
-  } catch { return []; }
+  } catch (e) { return []; }
 }
 
 export default async function handler(req, res) {
+  try { return await _handler(req, res); }
+  catch (e) { return res.status(500).json({ error: e.message, stack: e.stack }); }
+}
+
+async function _handler(req, res) {
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Expose-Headers", "X-PAYMENT-REQUIREMENTS, X-PAYMENT-RESPONSE");
