@@ -1,34 +1,109 @@
-// BookFinder x402 — 图书搜索 API
+// BookFinder x402 — AI Agent 图书搜索 API (x402 付费)
+import express from "express";
+import cors from "cors";
+
+var app = express();
+app.use(express.json());
+app.use(cors({
+  origin: "*",
+  exposedHeaders: [
+    "payment-required", "PAYMENT-REQUIRED",
+    "payment-response", "PAYMENT-RESPONSE",
+    "x-payment-requirements", "X-PAYMENT-REQUIREMENTS",
+    "x-payment-response", "X-PAYMENT-RESPONSE",
+  ],
+}));
+
+// ── x402 懒加载 ────────────────────────────────────────────
+var initPromise = null;
+
+async function ensureInit() {
+  if (!initPromise) initPromise = doInit();
+  return initPromise;
+}
+
+async function doInit() {
+  var PAYMENT_ADDRESS = (process.env.PAYMENT_ADDRESS || "").trim();
+  var NETWORK = (process.env.NETWORK || "eip155:84532").trim();
+
+  if (PAYMENT_ADDRESS) {
+    var [
+      x402Express,
+      x402Evm,
+      x402Coinbase,
+    ] = await Promise.all([
+      import("@x402/express"),
+      import("@x402/evm/exact/server"),
+      import("@coinbase/x402"),
+    ]);
+
+    var server = new x402Express.x402ResourceServer(x402Coinbase.facilitator)
+      .register(NETWORK, new x402Evm.ExactEvmScheme());
+
+    app.use(x402Express.paymentMiddleware({
+      "GET /api/book": {
+        accepts: [{
+          scheme: "exact",
+          price: "$0.01",
+          network: NETWORK,
+          payTo: PAYMENT_ADDRESS,
+        }],
+        description: "Search book and get PDF download link - 0.01 USDC",
+        mimeType: "application/json",
+      },
+    }, server));
+  }
+
+  // ── 搜索端点 ─────────────────────────────────────────────
+  app.get("/api/book", async function(req, res) {
+    var query = "";
+    if (req.query && req.query.q) query = req.query.q.trim();
+    else if (req.query && req.query.title) query = req.query.title.trim();
+
+    if (!query) {
+      return res.status(400).json({ error: "Missing query. Usage: GET /api/book?q=book+name" });
+    }
+
+    try {
+      var results = await searchBooks(query);
+      return res.json(results);
+    } catch (err) {
+      return res.status(500).json({ error: "Search failed", message: err.message });
+    }
+  });
+}
+
+// ── 图书搜索逻辑 ──────────────────────────────────────────
 
 function timeoutSignal(ms) {
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), ms);
-  return controller.signal;
+  var c = new AbortController();
+  setTimeout(function() { c.abort(); }, ms);
+  return c.signal;
 }
 
 async function searchBooks(query) {
-  const [gutendex, openlib] = await Promise.allSettled([
+  var [gutendex, openlib] = await Promise.allSettled([
     searchGutendex(query),
     searchOpenLibrary(query),
   ]);
-  const books = [];
-  if (gutendex.status === "fulfilled") books.push(...gutendex.value);
-  if (openlib.status === "fulfilled") books.push(...openlib.value);
-  return { query, total: books.length, books: books.slice(0, 10) };
+  var books = [];
+  if (gutendex.status === "fulfilled") books.push.apply(books, gutendex.value);
+  if (openlib.status === "fulfilled") books.push.apply(books, openlib.value);
+  return { query: query, total: books.length, books: books.slice(0, 10) };
 }
 
 async function searchGutendex(query) {
   try {
-    const url = `https://gutendex.com/books/?search=${encodeURIComponent(query)}`;
-    const res = await fetch(url, { redirect: "follow", signal: timeoutSignal(6000) });
+    var url = "https://gutendex.com/books/?search=" + encodeURIComponent(query);
+    var res = await fetch(url, { redirect: "follow", signal: timeoutSignal(6000) });
     if (!res.ok) return [];
-    const data = await res.json();
-    return (data.results || []).slice(0, 5).map((book) => {
-      const f = book.formats || {};
+    var data = await res.json();
+    return (data.results || []).slice(0, 5).map(function(book) {
+      var f = book.formats || {};
       return {
         source: "gutenberg",
         title: book.title,
-        authors: (book.authors || []).map((a) => a.name),
+        authors: (book.authors || []).map(function(a) { return a.name; }),
         languages: book.languages,
         downloads: {
           pdf: f["application/pdf"] || null,
@@ -44,12 +119,12 @@ async function searchGutendex(query) {
 
 async function searchOpenLibrary(query) {
   try {
-    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5&fields=key,title,author_name,first_publish_year,isbn,cover_i,ia`;
-    const res = await fetch(url, { redirect: "follow", signal: timeoutSignal(6000) });
+    var url = "https://openlibrary.org/search.json?q=" + encodeURIComponent(query) + "&limit=5&fields=key,title,author_name,first_publish_year,isbn,cover_i,ia";
+    var res = await fetch(url, { redirect: "follow", signal: timeoutSignal(6000) });
     if (!res.ok) return [];
-    const data = await res.json();
-    return (data.docs || []).slice(0, 5).map((doc) => {
-      const ia = doc.ia ? doc.ia[0] : undefined;
+    var data = await res.json();
+    return (data.docs || []).slice(0, 5).map(function(doc) {
+      var ia = doc.ia ? doc.ia[0] : undefined;
       return {
         source: "openlibrary",
         title: doc.title,
@@ -68,101 +143,16 @@ async function searchOpenLibrary(query) {
   } catch (e) { return []; }
 }
 
+// ── Vercel handler ────────────────────────────────────────
+
 export default async function handler(req, res) {
-  try { return await _handler(req, res); }
-  catch (e) { return res.status(500).json({ error: e.message }); }
-}
-
-async function _handler(req, res) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, PAYMENT-RESPONSE, X-PAYMENT-REQUIREMENTS, X-PAYMENT-RESPONSE");
-  if (req.method === "OPTIONS") {
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE");
-    return res.status(204).end();
-  }
-
-  var PAYMENT_ADDRESS = (process.env.PAYMENT_ADDRESS || "").trim();
-  var NETWORK = (process.env.NETWORK || "eip155:84532").trim();
-  // x402 v2 uses PAYMENT-SIGNATURE, v1 uses X-PAYMENT
-  var hasPaymentHeader = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
-
-  // USDC contract addresses per network
-  var USDC_ASSETS = {
-    "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-  };
-  var usdcAsset = USDC_ASSETS[NETWORK] || USDC_ASSETS["eip155:84532"];
-
-  // 没有支付头 + 配置了收款地址 → 返回 402 (x402 v2 标准格式)
-  if (PAYMENT_ADDRESS && !hasPaymentHeader) {
-    var requestUrl = "https://" + (req.headers.host || "bookfinder-x402.vercel.app") + "/api/book";
-    var payReq = {
-      x402Version: 2,
-      error: "Payment required",
-      resource: {
-        url: requestUrl,
-        description: "Search book and get PDF download link - 0.01 USDC",
-        mimeType: "application/json",
-      },
-      accepts: [{
-        scheme: "exact",
-        network: NETWORK,
-        asset: usdcAsset,
-        amount: "10000",
-        payTo: PAYMENT_ADDRESS,
-        maxTimeoutSeconds: 60,
-        extra: {},
-      }],
-    };
-    // x402 v2: PAYMENT-REQUIRED header with base64 encoded JSON
-    res.setHeader("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(payReq)).toString("base64"));
-    return res.status(402).json({});
-  }
-
-  // 有支付头 → 验证支付 (懒加载 x402)
-  if (PAYMENT_ADDRESS && hasPaymentHeader) {
-    try {
-      var x402Express = await import("@x402/express");
-      var x402Evm = await import("@x402/evm/exact/server");
-      var x402Coinbase = await import("@coinbase/x402");
-
-      var server = new x402Express.x402ResourceServer(x402Coinbase.facilitator)
-        .register(NETWORK, new x402Evm.ExactEvmScheme());
-
-      var mw = x402Express.paymentMiddleware({
-        "GET /api/book": {
-          accepts: [{ scheme: "exact", price: "$0.01", network: NETWORK, payTo: PAYMENT_ADDRESS }],
-          description: "Book search",
-          mimeType: "application/json",
-        },
-      }, server);
-
-      var passed = await new Promise(function(resolve) {
-        mw(req, res, function() { resolve(true); });
-        res.on("finish", function() { resolve(false); });
-      });
-
-      if (!passed) return;
-    } catch (e) {
-      return res.status(500).json({ error: "Payment verification failed", message: e.message });
-    }
-  }
-
-  // 搜索
-  var query = "";
-  if (req.query && req.query.q) query = req.query.q.trim();
-  else if (req.query && req.query.title) query = req.query.title.trim();
-
-  if (!query) {
-    return res.status(400).json({ error: "Missing query. Usage: GET /api/book?q=book+name" });
-  }
-
   try {
-    var results = await searchBooks(query);
-    return res.json(results);
-  } catch (err) {
-    return res.status(500).json({ error: "Search failed", message: err.message });
+    await ensureInit();
+    return new Promise(function(resolve) {
+      res.on("finish", resolve);
+      app(req, res);
+    });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 }
