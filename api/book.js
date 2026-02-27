@@ -1,5 +1,11 @@
 // BookFinder x402 — 图书搜索 API
 
+function timeoutSignal(ms) {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 async function searchBooks(query) {
   const [gutendex, openlib] = await Promise.allSettled([
     searchGutendex(query),
@@ -12,50 +18,54 @@ async function searchBooks(query) {
 }
 
 async function searchGutendex(query) {
-  const url = `https://gutendex.com/books/?search=${encodeURIComponent(query)}`;
-  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(6000) });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.results || []).slice(0, 5).map((book) => {
-    const f = book.formats || {};
-    return {
-      source: "gutenberg",
-      title: book.title,
-      authors: (book.authors || []).map((a) => a.name),
-      languages: book.languages,
-      downloads: {
-        pdf: f["application/pdf"] || null,
-        epub: f["application/epub+zip"] || null,
-        html: f["text/html"] || f["text/html; charset=utf-8"] || null,
-        text: f["text/plain"] || f["text/plain; charset=utf-8"] || f["text/plain; charset=us-ascii"] || null,
-      },
-      cover: f["image/jpeg"] || null,
-    };
-  });
+  try {
+    const url = `https://gutendex.com/books/?search=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { redirect: "follow", signal: timeoutSignal(6000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).slice(0, 5).map((book) => {
+      const f = book.formats || {};
+      return {
+        source: "gutenberg",
+        title: book.title,
+        authors: (book.authors || []).map((a) => a.name),
+        languages: book.languages,
+        downloads: {
+          pdf: f["application/pdf"] || null,
+          epub: f["application/epub+zip"] || null,
+          html: f["text/html"] || f["text/html; charset=utf-8"] || null,
+          text: f["text/plain"] || f["text/plain; charset=utf-8"] || f["text/plain; charset=us-ascii"] || null,
+        },
+        cover: f["image/jpeg"] || null,
+      };
+    });
+  } catch { return []; }
 }
 
 async function searchOpenLibrary(query) {
-  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5&fields=key,title,author_name,first_publish_year,isbn,cover_i,ia`;
-  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(6000) });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.docs || []).slice(0, 5).map((doc) => {
-    const ia = doc.ia?.[0];
-    return {
-      source: "openlibrary",
-      title: doc.title,
-      authors: doc.author_name || [],
-      year: doc.first_publish_year || null,
-      isbn: doc.isbn?.[0] || null,
-      openlibrary_url: `https://openlibrary.org${doc.key}`,
-      downloads: {
-        pdf: ia ? `https://archive.org/download/${ia}/${ia}.pdf` : null,
-        epub: ia ? `https://archive.org/download/${ia}/${ia}.epub` : null,
-        read_online: ia ? `https://archive.org/details/${ia}` : null,
-      },
-      cover: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg` : null,
-    };
-  });
+  try {
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5&fields=key,title,author_name,first_publish_year,isbn,cover_i,ia`;
+    const res = await fetch(url, { redirect: "follow", signal: timeoutSignal(6000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.docs || []).slice(0, 5).map((doc) => {
+      const ia = doc.ia ? doc.ia[0] : undefined;
+      return {
+        source: "openlibrary",
+        title: doc.title,
+        authors: doc.author_name || [],
+        year: doc.first_publish_year || null,
+        isbn: (doc.isbn && doc.isbn[0]) || null,
+        openlibrary_url: "https://openlibrary.org" + doc.key,
+        downloads: {
+          pdf: ia ? "https://archive.org/download/" + ia + "/" + ia + ".pdf" : null,
+          epub: ia ? "https://archive.org/download/" + ia + "/" + ia + ".epub" : null,
+          read_online: ia ? "https://archive.org/details/" + ia : null,
+        },
+        cover: doc.cover_i ? "https://covers.openlibrary.org/b/id/" + doc.cover_i + "-M.jpg" : null,
+      };
+    });
+  } catch { return []; }
 }
 
 export default async function handler(req, res) {
@@ -68,9 +78,9 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  const PAYMENT_ADDRESS = (process.env.PAYMENT_ADDRESS || "").trim();
-  const NETWORK = (process.env.NETWORK || "eip155:84532").trim();
-  const hasPaymentHeader = !!req.headers["x-payment"];
+  var PAYMENT_ADDRESS = (process.env.PAYMENT_ADDRESS || "").trim();
+  var NETWORK = (process.env.NETWORK || "eip155:84532").trim();
+  var hasPaymentHeader = !!(req.headers["x-payment"]);
 
   // 没有支付头 + 配置了收款地址 → 返回 402
   if (PAYMENT_ADDRESS && !hasPaymentHeader) {
@@ -96,18 +106,14 @@ export default async function handler(req, res) {
   // 有支付头 → 验证支付 (懒加载 x402)
   if (PAYMENT_ADDRESS && hasPaymentHeader) {
     try {
-      const [
-        { paymentMiddleware, x402ResourceServer },
-        { ExactEvmScheme },
-        { facilitator },
-      ] = await Promise.all([
-        import("@x402/express"),
-        import("@x402/evm/exact/server"),
-        import("@coinbase/x402"),
-      ]);
+      var x402Express = await import("@x402/express");
+      var x402Evm = await import("@x402/evm/exact/server");
+      var x402Coinbase = await import("@coinbase/x402");
 
-      const server = new x402ResourceServer(facilitator).register(NETWORK, new ExactEvmScheme());
-      const mw = paymentMiddleware({
+      var server = new x402Express.x402ResourceServer(x402Coinbase.facilitator)
+        .register(NETWORK, new x402Evm.ExactEvmScheme());
+
+      var mw = x402Express.paymentMiddleware({
         "GET /api/book": {
           accepts: [{ scheme: "exact", price: "$0.01", network: NETWORK, payTo: PAYMENT_ADDRESS }],
           description: "Book search",
@@ -115,13 +121,9 @@ export default async function handler(req, res) {
         },
       }, server);
 
-      const passed = await new Promise((resolve) => {
-        const origEnd = res.end;
-        res.end = function (...args) {
-          resolve(false);
-          return origEnd.apply(res, args);
-        };
-        mw(req, res, () => resolve(true));
+      var passed = await new Promise(function(resolve) {
+        mw(req, res, function() { resolve(true); });
+        res.on("finish", function() { resolve(false); });
       });
 
       if (!passed) return;
@@ -131,11 +133,18 @@ export default async function handler(req, res) {
   }
 
   // 搜索
-  const query = (req.query?.q || req.query?.title || "").trim();
+  var query = "";
+  if (req.query && req.query.q) query = req.query.q.trim();
+  else if (req.query && req.query.title) query = req.query.title.trim();
+
   if (!query) {
     return res.status(400).json({ error: "Missing query. Usage: GET /api/book?q=book+name" });
   }
 
-  const results = await searchBooks(query);
-  return res.json(results);
+  try {
+    var results = await searchBooks(query);
+    return res.json(results);
+  } catch (err) {
+    return res.status(500).json({ error: "Search failed", message: err.message });
+  }
 }
