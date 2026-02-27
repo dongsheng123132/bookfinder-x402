@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/**/*.js": { "maxDuration": 30 }
+    "api/**/*.js": { "maxDuration": 60 }
   },
   "headers": [
     {
@@ -14,6 +14,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/skill.md", "destination": "/public/skill.md" }
+    { "source": "/skill.md", "destination": "/public/skill.md" },
+    { "source": "/", "destination": "/api/index" }
   ]
 }

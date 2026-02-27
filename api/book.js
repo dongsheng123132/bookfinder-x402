@@ -105,7 +105,7 @@ async function searchBooks(query) {
 
 async function searchGutendex(query) {
   const url = `https://gutendex.com/books/?search=${encodeURIComponent(query)}`;
-  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(10000) });
+  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(8000) });
   if (!res.ok) return [];
   const data = await res.json();
 
@@ -131,7 +131,7 @@ async function searchGutendex(query) {
 
 async function searchOpenLibrary(query) {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5&fields=key,title,author_name,first_publish_year,isbn,cover_i,ia`;
-  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(10000) });
+  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(8000) });
   if (!res.ok) return [];
   const data = await res.json();
 
@@ -160,7 +160,7 @@ async function searchAnnasArchive(query) {
   try {
     const url = `https://annas-archive.org/search?q=${encodeURIComponent(query)}`;
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(8000),
       headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
     });
     if (!res.ok) return [];
