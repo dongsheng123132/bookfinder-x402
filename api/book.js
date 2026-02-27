@@ -89,19 +89,21 @@ async function _handler(req, res) {
 
   // 没有支付头 + 配置了收款地址 → 返回 402
   if (PAYMENT_ADDRESS && !hasPaymentHeader) {
-    res.setHeader("X-PAYMENT-REQUIREMENTS", JSON.stringify({
+    var payReq = {
       accepts: [{
         scheme: "exact",
-        price: "$0.01",
+        price: "0.01",
         network: NETWORK,
         payTo: PAYMENT_ADDRESS,
       }],
-      description: "Search book and get PDF download link — 0.01 USDC",
+      description: "Search book and get PDF download link - 0.01 USDC",
       mimeType: "application/json",
-    }));
+    };
+    // Base64 encode to avoid invalid header chars
+    res.setHeader("X-PAYMENT-REQUIREMENTS", Buffer.from(JSON.stringify(payReq)).toString("base64"));
     return res.status(402).json({
       error: "Payment Required",
-      price: "$0.01 USDC",
+      price: "0.01 USDC",
       network: NETWORK,
       payTo: PAYMENT_ADDRESS,
       how: "npx awal@latest x402 pay <this-url> -X GET",
