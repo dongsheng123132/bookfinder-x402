@@ -33,12 +33,15 @@ async function doInit() {
     const [
       { paymentMiddleware, x402ResourceServer },
       { ExactEvmScheme },
-      { facilitator },
+      { HTTPFacilitatorClient },
     ] = await Promise.all([
       import("@x402/express"),
       import("@x402/evm/exact/server"),
-      import("@coinbase/x402"),
+      import("@x402/core/server"),
     ]);
+
+    // 测试网用免费 x402.org facilitator
+    const facilitator = new HTTPFacilitatorClient({ url: "https://x402.org/facilitator" });
 
     const server = new x402ResourceServer(facilitator).register(
       NETWORK,

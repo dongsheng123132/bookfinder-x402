@@ -30,14 +30,19 @@ async function doInit() {
     var [
       x402Express,
       x402Evm,
-      x402Coinbase,
+      x402Core,
     ] = await Promise.all([
       import("@x402/express"),
       import("@x402/evm/exact/server"),
-      import("@coinbase/x402"),
+      import("@x402/core/server"),
     ]);
 
-    var server = new x402Express.x402ResourceServer(x402Coinbase.facilitator)
+    var facilitatorUrl = NETWORK === "eip155:8453"
+      ? "https://api.cdp.coinbase.com/platform/v2/x402"
+      : "https://x402.org/facilitator";
+    var facilitator = new x402Core.HTTPFacilitatorClient({ url: facilitatorUrl });
+
+    var server = new x402Express.x402ResourceServer(facilitator)
       .register(NETWORK, new x402Evm.ExactEvmScheme());
 
     app.use(x402Express.paymentMiddleware({
