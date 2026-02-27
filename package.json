@@ -1,0 +1,17 @@
+{
+  "name": "bookfinder-x402",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@coinbase/x402": "latest",
+    "@x402/core": "latest",
+    "@x402/evm": "latest",
+    "@x402/express": "latest",
+    "cors": "^2.8.5",
+    "express": "^4.21.0"
+  }
+}

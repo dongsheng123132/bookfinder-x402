@@ -1,0 +1,19 @@
+{
+  "functions": {
+    "api/**/*.js": { "maxDuration": 30 }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, X-PAYMENT" },
+        { "key": "Access-Control-Expose-Headers", "value": "X-PAYMENT-REQUIREMENTS, X-PAYMENT-RESPONSE" }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/skill.md", "destination": "/public/skill.md" }
+  ]
+}
